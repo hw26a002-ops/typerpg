@@ -1,0 +1,6 @@
+{
+  "name": "タイピングダンジョン",
+  "description": "1層から10層までのダンジョンにて、敵をタイピングで倒しながら進むターン制タイピングRPG",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
