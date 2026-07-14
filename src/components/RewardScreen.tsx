@@ -9,7 +9,6 @@ interface RewardScreenProps {
 }
 
 export default function RewardScreen({ floor, player, onSelectReward }: RewardScreenProps) {
-  const healAmount = Math.floor(player.maxHp * 0.2);
   const currentConcentrationText = player.concentrationGenLevel > 0 
     ? `（現在：毎ターン開始時に [集中] ${player.concentrationGenLevel} 獲得）` 
     : '（未取得）';
@@ -32,7 +31,7 @@ export default function RewardScreen({ floor, player, onSelectReward }: RewardSc
     {
       title: "明鏡止水のルーン",
       desc: "毎ターン開始時に [集中] +1 を得る",
-      subDesc: `攻撃的中時に確率でダメージを1.2倍にする「集中」を自動生成する。重なるとさらに強力に！ ${currentConcentrationText}`,
+      subDesc: `攻撃的中時に確率でダメージを1.5倍にする「集中」を自動生成する。重なるとさらに強力に！ ${currentConcentrationText}`,
       icon: Sparkles,
       color: "from-emerald-950/20 to-slate-900/40 hover:border-emerald-500/40 border-slate-800 text-emerald-400",
     },
@@ -66,7 +65,7 @@ export default function RewardScreen({ floor, player, onSelectReward }: RewardSc
         >
           <Heart className="w-5 h-5 fill-current animate-pulse" />
           <span className="text-sm font-semibold">
-            クリアボーナス：体力が 20%（+{healAmount} HP）回復しました！
+            クリアボーナス：体力が 100%（全回復）しました！
           </span>
         </motion.div>
 

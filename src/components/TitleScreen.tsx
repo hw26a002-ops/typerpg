@@ -41,7 +41,7 @@ export default function TitleScreen({ onStart }: TitleScreenProps) {
             <div className="flex items-start gap-3">
               <div className="p-1 rounded bg-slate-800 text-slate-300 font-mono mt-0.5 text-xs border border-slate-700">攻撃</div>
               <div>
-                <p className="font-semibold text-slate-200">簡単な単語（制限時間 7秒）</p>
+                <p className="font-semibold text-slate-200">簡単な単語（制限時間 5秒）</p>
                 <p className="text-xs text-slate-400">成功で「文字数 + 自身の攻撃力」のダメージを与える。</p>
               </div>
             </div>
@@ -49,8 +49,8 @@ export default function TitleScreen({ onStart }: TitleScreenProps) {
             <div className="flex items-start gap-3">
               <div className="p-1 rounded bg-red-950/40 text-red-400 border border-red-900/30 font-mono mt-0.5 text-xs">強攻撃</div>
               <div>
-                <p className="font-semibold text-slate-200">少し長めの文章（制限時間 15秒 / ノーミス必須）</p>
-                <p className="text-xs text-slate-400">1文字でもミスすると失敗。成功で「(文字数 + 自身の攻撃力) × 1.5」の特大ダメージ（魔法属性扱い）。</p>
+                <p className="font-semibold text-slate-200">少し長めの文章（制限時間 7秒 / ノーミス必須）</p>
+                <p className="text-xs text-slate-400">1文字でもミスすると失敗。成功で「(文字数 + 自身の攻撃力) × 1.5」の大ダメージ。</p>
               </div>
             </div>
 
@@ -58,7 +58,7 @@ export default function TitleScreen({ onStart }: TitleScreenProps) {
               <div className="p-1 rounded bg-blue-950/40 text-blue-400 border border-blue-900/30 font-mono mt-0.5 text-xs">防御</div>
               <div>
                 <p className="font-semibold text-slate-200">長めの文章（制限時間 15秒）</p>
-                <p className="text-xs text-slate-400">「打ち込んだ文字数 × 5%」ダメージ軽減。100%を超過すると無効化し、超過分に応じた強力なカウンターをお見舞いする！</p>
+                <p className="text-xs text-slate-400">「打ち込んだ文字数 × 5%」ダメージ軽減。100%を超過すると無効化し、超過分に応じたカウンターをお見舞いする！</p>
               </div>
             </div>
 

@@ -15,7 +15,7 @@ export const ENEMY_TEMPLATES: Record<Exclude<EnemyType, 'SHADOW'>, Omit<EnemySta
     maxHp: 50,
     baseAtk: 10,
     passiveName: '魔法熟練',
-    passiveDesc: 'プレイヤーから受ける魔法（強攻撃）ダメージを半減。防御によるダメージ軽減を無効化。',
+    passiveDesc: 'プレイヤーから受ける強攻撃ダメージを25%軽減。防御によるダメージ軽減を無効化。',
   },
   GOLEM: {
     type: 'GOLEM',
@@ -31,7 +31,7 @@ export const ENEMY_TEMPLATES: Record<Exclude<EnemyType, 'SHADOW'>, Omit<EnemySta
     maxHp: 30,
     baseAtk: 5,
     passiveName: '小柄/猛毒',
-    passiveDesc: 'プレイヤーに攻撃的中時、50%の確率で[毒]3を付与。',
+    passiveDesc: 'プレイヤーに攻撃的中時、50%の確率で[毒]3を付与（既に猛毒状態なら付与しない）。',
   },
 };
 

@@ -52,9 +52,8 @@ export default function App() {
   // 報酬の選択＆適用
   const handleSelectReward = (rewardIndex: number) => {
     setPlayer(prev => {
-      // 撃破後の体力20%回復 (最大HPの20%分)
-      const healAmount = Math.floor(prev.maxHp * 0.2);
-      const newHp = Math.min(prev.hp + healAmount, prev.maxHp);
+      // 撃破後の体力100%回復 (全回復)
+      const newHp = prev.maxHp;
 
       let baseAtk = prev.baseAtk;
       let atkLimitReductionLevel = prev.atkLimitReductionLevel;

@@ -76,13 +76,15 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
       // 1. プレイヤーの [集中] 毎ターン自動獲得 (報酬ボーナス)
       if (player.concentrationGenLevel > 0) {
-        setPlayer(prev => ({
-          ...prev,
-          buffs: {
-            ...prev.buffs,
-            concentration: prev.buffs.concentration + player.concentrationGenLevel
-          }
-        }));
+        setTimeout(() => {
+          setPlayer(prev => ({
+            ...prev,
+            buffs: {
+              ...prev.buffs,
+              concentration: prev.buffs.concentration + player.concentrationGenLevel
+            }
+          }));
+        }, 0);
         addLog(`ルーンの加護：[集中] を ${player.concentrationGenLevel} 得た。`, 'buff');
       }
 
@@ -280,11 +282,11 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
     switch (action) {
       case 'ATTACK':
         word = getRandomWord(ATTACK_WORDS);
-        baseTime = 7;
+        baseTime = 5;
         break;
       case 'STRONG_ATTACK':
         word = getRandomWord(STRONG_ATTACK_WORDS);
-        baseTime = 15;
+        baseTime = 7;
         break;
       case 'DEFEND':
         word = getRandomWord(DEFEND_WORDS);
@@ -316,6 +318,14 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
     setPlayerUsedActionThisTurn(true);
 
+    if (selectedAction === 'EVADE') {
+      addLog(`「${targetHiragana}」のノーミスタイピングに成功！ 回避体勢をとった！`, 'player_info');
+      setTimeout(() => {
+        setPhase('ENEMY_TURN');
+      }, 1000);
+      return;
+    }
+
     let rawDamage = 0;
     let text = '';
     let isMagic = false;
@@ -325,16 +335,16 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
       text = `「${targetHiragana}」のタイピングに成功！ ${enemy.name}に攻撃を仕掛けた！`;
     } else if (selectedAction === 'STRONG_ATTACK') {
       rawDamage = Math.floor((targetHiragana.length + player.baseAtk) * 1.5);
-      text = `「${targetHiragana}」のノーミスタイピングに成功！ 強力な魔法攻撃！`;
+      text = `「${targetHiragana}」のノーミスタイピングに成功！ 強力な攻撃！`;
       isMagic = true;
     }
 
     addLog(text, 'player_info');
 
-    // 1. ガイコツ魔術師パッシブ: 魔法ダメージを半減
+    // 1. ガイコツ魔術師パッシブ: 魔法ダメージを25%軽減
     if (isMagic && enemy.type === 'SKELETON') {
-      rawDamage = Math.floor(rawDamage * 0.5);
-      addLog(`ガイコツ魔術師の【魔法熟練】：魔法ダメージが半減される！`, 'enemy_info');
+      rawDamage = Math.floor(rawDamage * 0.75);
+      addLog(`ガイコツ魔術師の【魔法熟練】：強攻撃ダメージが25%軽減される！`, 'enemy_info');
     }
 
     // 2. 集中バフ判定: [集中]数値×10%の確率で、攻撃的中時に与ダメージ1.2倍
@@ -344,8 +354,8 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
       const isTriggered = Math.random() * 100 < chance;
       
       if (isTriggered) {
-        finalDamage = Math.floor(finalDamage * 1.2);
-        addLog(`[集中]の効果が発動！ 与えるダメージが1.2倍（${finalDamage}）になった！`, 'buff');
+        finalDamage = Math.floor(finalDamage * 1.5);
+        addLog(`[集中]の効果が発動！ 与えるダメージが1.5倍（${finalDamage}）になった！`, 'buff');
         
         // 集中を半減（小数点切り捨て、0未満なら消滅＝0以下は消滅）
         setPlayer(prev => {
@@ -405,9 +415,31 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         const variance = Math.floor(enemy.baseAtk * 0.2);
         const minDmg = enemy.baseAtk - variance;
         const maxDmg = enemy.baseAtk + variance;
-        const rawEnemyDmg = Math.floor(minDmg + Math.random() * (maxDmg - minDmg + 1));
+        let rawEnemyDmg = Math.floor(minDmg + Math.random() * (maxDmg - minDmg + 1));
 
         addLog(`${enemy.name}の攻撃！ 威力: ${rawEnemyDmg}`, 'enemy_info');
+
+        // 敵の集中バフ判定: [集中]数値×10%の確率で、与ダメージ1.5倍
+        if (enemy.buffs.concentration > 0) {
+          const chance = enemy.buffs.concentration * 10;
+          const isTriggered = Math.random() * 100 < chance;
+          if (isTriggered) {
+            rawEnemyDmg = Math.floor(rawEnemyDmg * 1.5);
+            addLog(`${enemy.name}の[集中]の効果が発動！ 与えるダメージが1.5倍（${rawEnemyDmg}）になった！`, 'buff');
+            
+            // 集中を半減
+            setEnemy(prev => {
+              const nextConc = Math.floor(prev.buffs.concentration / 2);
+              return {
+                ...prev,
+                buffs: {
+                  ...prev.buffs,
+                  concentration: nextConc
+                }
+              };
+            });
+          }
+        }
 
         let finalPlayerDmg = rawEnemyDmg;
         let isHit = true; // 的中フラグ
@@ -417,6 +449,11 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
           finalPlayerDmg = 0;
           isHit = false;
           addLog(`華麗に回避！ 敵の攻撃を完全に受け流した！`, 'player_info');
+        } else if (selectedAction === 'EVADE' && isFailed) {
+          // 回避失敗時は確実にダメージが直撃
+          finalPlayerDmg = rawEnemyDmg;
+          isHit = true;
+          addLog(`回避失敗！ 無防備なところに攻撃が直撃した！`, 'player_damage');
         }
 
         // 防御の場合の処理
@@ -462,10 +499,12 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
         // ダメージ適用
         if (finalPlayerDmg > 0) {
-          setPlayer(prev => ({
-            ...prev,
-            hp: Math.max(prev.hp - finalPlayerDmg, 0)
-          }));
+          setTimeout(() => {
+            setPlayer(prev => ({
+              ...prev,
+              hp: Math.max(prev.hp - finalPlayerDmg, 0)
+            }));
+          }, 0);
           addLog(`あなたは ${finalPlayerDmg} のダメージを受けた！`, 'player_damage');
         }
 
@@ -480,61 +519,69 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
         // 敵の的中時パッシブ発動
         if (isHit) {
-          // 1. スパイダー: 攻撃命中時、50%の確率で[毒]3を付与する。
+          const isEvadeFailed = (selectedAction === 'EVADE' && isFailed);
+          // 1. スパイダー: 攻撃命中時、50%の確率で[毒]3を付与する。(回避失敗時は100%的中)
           if (enemy.type === 'SPIDER') {
-            if (Math.random() * 100 < 50) {
-              setPlayer(prev => {
-                const currentPoison = prev.debuffs.poison;
-                if (currentPoison > 0) {
-                  // すでに毒状態なら、毒を解除し猛毒にする
-                  addLog(`${enemy.name}の猛毒が体内を侵食！ [毒]が解除され、恐るべき【猛毒】状態になった！`, 'debuff');
-                  return {
-                    ...prev,
-                    debuffs: {
-                      ...prev.debuffs,
-                      poison: 0,
-                      deadlyPoison: true
-                    }
-                  };
-                } else {
-                  addLog(`${enemy.name}の牙から毒が注入された！ [毒] 3 を受けた！`, 'debuff');
-                  return {
-                    ...prev,
-                    debuffs: {
-                      ...prev.debuffs,
-                      poison: 3
-                    }
-                  };
-                }
-              });
+            if (isEvadeFailed || Math.random() * 100 < 50) {
+              setTimeout(() => {
+                setPlayer(prev => {
+                  if (prev.debuffs.deadlyPoison) {
+                    return prev; // 既に猛毒状態なら付与しない
+                  }
+                  const currentPoison = prev.debuffs.poison;
+                  if (currentPoison > 0) {
+                    // すでに毒状態なら、毒を解除し猛毒にする
+                    addLog(`${enemy.name}の猛毒が体内を侵食！ [毒]が解除され、恐るべき【猛毒】状態になった！`, 'debuff');
+                    return {
+                      ...prev,
+                      debuffs: {
+                        ...prev.debuffs,
+                        poison: 0,
+                        deadlyPoison: true
+                      }
+                    };
+                  } else {
+                    addLog(`${enemy.name}の牙から毒が注入された！ [毒] 3 を受けた！`, 'debuff');
+                    return {
+                      ...prev,
+                      debuffs: {
+                        ...prev.debuffs,
+                        poison: 3
+                      }
+                    };
+                  }
+                });
+              }, 0);
             }
           }
 
-          // 2. ゴーレム: 攻撃的中時、30%の確率で[圧倒]または[脱力]3を付与
+          // 2. ゴーレム: 攻撃的中時、30%の確率で[圧倒]または[脱力]3を付与 (回避失敗時は100%的中)
           if (enemy.type === 'GOLEM') {
-            if (Math.random() * 100 < 30) {
+            if (isEvadeFailed || Math.random() * 100 < 30) {
               const isOverwhelmed = Math.random() < 0.5;
-              setPlayer(prev => {
-                if (isOverwhelmed) {
-                  addLog(`${enemy.name}の圧倒的な威圧感！ [圧倒] 3 （タイピング時間25%減少）を受けた！`, 'debuff');
-                  return {
-                    ...prev,
-                    debuffs: {
-                      ...prev.debuffs,
-                      overwhelmed: 3
-                    }
-                  };
-                } else {
-                  addLog(`${enemy.name}の重震撃！ [脱力] 3 （与ダメージ30%減少）を受けた！`, 'debuff');
-                  return {
-                    ...prev,
-                    debuffs: {
-                      ...prev.debuffs,
-                      weakened: 3
-                    }
-                  };
-                }
-              });
+              setTimeout(() => {
+                setPlayer(prev => {
+                  if (isOverwhelmed) {
+                    addLog(`${enemy.name}の圧倒的な威圧感！ [圧倒] 3 （タイピング時間25%減少）を受けた！`, 'debuff');
+                    return {
+                      ...prev,
+                      debuffs: {
+                        ...prev.debuffs,
+                        overwhelmed: 3
+                      }
+                    };
+                  } else {
+                    addLog(`${enemy.name}の重震撃！ [脱力] 3 （与ダメージ30%減少）を受けた！`, 'debuff');
+                    return {
+                      ...prev,
+                      debuffs: {
+                        ...prev.debuffs,
+                        weakened: 3
+                      }
+                    };
+                  }
+                });
+              }, 0);
             }
           }
         }
@@ -580,10 +627,12 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         let nextHp = player.hp;
         if (totalPoisonDmg > 0) {
           nextHp = Math.max(player.hp - totalPoisonDmg, 0);
-          setPlayer(prev => ({
-            ...prev,
-            hp: nextHp
-          }));
+          setTimeout(() => {
+            setPlayer(prev => ({
+              ...prev,
+              hp: nextHp
+            }));
+          }, 0);
         }
 
         if (nextHp <= 0) {
@@ -594,26 +643,28 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         }
 
         // 3. デバフ数値の減少処理 (圧倒、脱力、毒)
-        setPlayer(prev => {
-          const nextOverwhelmed = Math.max(prev.debuffs.overwhelmed - 1, 0);
-          const nextWeakened = Math.max(prev.debuffs.weakened - 1, 0);
-          const nextPoison = Math.max(prev.debuffs.poison - 1, 0);
+        setTimeout(() => {
+          setPlayer(prev => {
+            const nextOverwhelmed = Math.max(prev.debuffs.overwhelmed - 1, 0);
+            const nextWeakened = Math.max(prev.debuffs.weakened - 1, 0);
+            const nextPoison = Math.max(prev.debuffs.poison - 1, 0);
 
-          // ログを流す
-          if (prev.debuffs.overwhelmed === 1) addLog(`[圧倒]状態が解けた。`, 'system');
-          if (prev.debuffs.weakened === 1) addLog(`[脱力]状態が解けた。`, 'system');
-          if (prev.debuffs.poison === 1) addLog(`[毒]状態が解けた。`, 'system');
+            // ログを流す
+            if (prev.debuffs.overwhelmed === 1) addLog(`[圧倒]状態が解けた。`, 'system');
+            if (prev.debuffs.weakened === 1) addLog(`[脱力]状態が解けた。`, 'system');
+            if (prev.debuffs.poison === 1) addLog(`[毒]状態が解けた。`, 'system');
 
-          return {
-            ...prev,
-            debuffs: {
-              ...prev.debuffs,
-              overwhelmed: nextOverwhelmed,
-              weakened: nextWeakened,
-              poison: nextPoison,
-            }
-          };
-        });
+            return {
+              ...prev,
+              debuffs: {
+                ...prev.debuffs,
+                overwhelmed: nextOverwhelmed,
+                weakened: nextWeakened,
+                poison: nextPoison,
+              }
+            };
+          });
+        }, 0);
 
         // ターン経過
         setTurn(prev => prev + 1);
@@ -641,18 +692,20 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
     // 戦闘終了時に毒デバフ（戦闘終了まで持続する猛毒を含む）や他のデバフはリセット。
     // 仕様には特にリセットの記述はないが、通常戦闘終了時に状態異常は治るのが自然なため、
     // プレイヤーの戦闘用一時ステータスをクリーンアップする。
-    setPlayer(prev => ({
-      ...prev,
-      debuffs: {
-        overwhelmed: 0,
-        weakened: 0,
-        poison: 0,
-        deadlyPoison: false
-      },
-      buffs: {
-        concentration: 0 // 集中は次の戦闘へ引き継いでもよいが、仕様上リセット
-      }
-    }));
+    setTimeout(() => {
+      setPlayer(prev => ({
+        ...prev,
+        debuffs: {
+          overwhelmed: 0,
+          weakened: 0,
+          poison: 0,
+          deadlyPoison: false
+        },
+        buffs: {
+          concentration: 0 // 集中は次の戦闘へ引き継いでもよいが、仕様上リセット
+        }
+      }));
+    }, 0);
 
     setTimeout(() => {
       onWin();
@@ -1041,7 +1094,7 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
           <div className="space-y-3">
             <div>
               <div className="text-blue-400 font-bold underline mb-1">[集中]</div>
-              <p className="text-[10px] text-slate-500 leading-normal">与ダメージ1.2倍に。発動時、数値を半減。</p>
+              <p className="text-[10px] text-slate-500 leading-normal">与ダメージ1.5倍に。発動時、数値を半減。</p>
             </div>
             <div>
               <div className="text-red-400 font-bold underline mb-1">[圧倒]</div>
