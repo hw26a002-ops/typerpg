@@ -116,7 +116,7 @@ export default function App() {
       </header>
 
       {/* メインコンテンツ */}
-      <div className="flex-1 max-w-7xl w-full mx-auto px-4 md:px-8 py-8 flex flex-col justify-center">
+      <div className="flex-1 max-w-7xl w-full mx-auto px-4 md:px-8 py-4 flex flex-col justify-center">
         {screen === 'TITLE' && (
           <TitleScreen onStart={handleStartGame} />
         )}
@@ -155,9 +155,11 @@ export default function App() {
       </div>
 
       {/* フッター */}
-      <footer className="py-6 border-t border-slate-800 text-center text-xs text-slate-500 font-mono">
-        © 2026 Typing Dungeon. Created for Typing Warriors.
-      </footer>
+      {screen !== 'BATTLE' && (
+        <footer className="py-6 border-t border-slate-800 text-center text-xs text-slate-500 font-mono">
+          © 2026 Typing Dungeon. Created for Typing Warriors.
+        </footer>
+      )}
     </main>
   );
 }

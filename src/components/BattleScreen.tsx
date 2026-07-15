@@ -36,8 +36,9 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
   // ターン履歴
   const [golemActionReady, setGolemActionReady] = useState<boolean>(true); // ゴーレムの行動可能フラグ
   const [playerUsedActionThisTurn, setPlayerUsedActionThisTurn] = useState<boolean>(false); // 毒判定用
+  const [showDefinitions, setShowDefinitions] = useState<boolean>(false); // ステータス効果解説の開閉用
 
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // ログ追加ユーティリティ
@@ -47,7 +48,9 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
   // ログが追加されたらスクロール
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
   }, [logs]);
 
   // 全制限時間の計算ユーティリティ
@@ -830,16 +833,16 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
   const timerPercentage = totalAllowedTime > 0 ? (timeLeft / totalAllowedTime) * 100 : 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-6xl w-full mx-auto p-4 items-start" id="battle-screen-container">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-6xl w-full mx-auto p-2 items-start" id="battle-screen-container">
       
       {/* 左コラム: キャラクターのステータス & タイピングUI (8/12幅) */}
-      <div className="lg:col-span-8 space-y-6">
+      <div className="lg:col-span-8 space-y-4">
         
         {/* 敵とプレイヤーのヘルスバー */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           
           {/* プレイヤー情報 */}
-          <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl" id="player-status-card">
+          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl" id="player-status-card">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Heart className="w-5 h-5 text-emerald-500 fill-current animate-pulse" />
@@ -858,50 +861,86 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
             {/* バフ & デバフ */}
             <div className="mt-4 flex flex-wrap gap-2 text-xs font-sans">
-              <div className="px-2 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded font-semibold flex items-center gap-1">
+              <div className="relative group cursor-help px-2 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded font-semibold flex items-center gap-1">
                 <Zap className="w-3.5 h-3.5 text-slate-400" />
                 <span>基本攻撃威力 {player.baseAtk}</span>
+                {/* ツールチップ */}
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                  <div className="font-bold text-slate-100 mb-0.5">基本攻撃威力</div>
+                  <div className="leading-snug">タイピング攻撃の基礎威力。タイピング成功した文字数にこの値が加算されます。</div>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                </div>
               </div>
 
               {player.buffs.concentration > 0 && (
-                <div className="px-2 py-0.5 bg-blue-900/50 text-blue-300 border border-blue-700/50 rounded font-semibold flex items-center gap-1 animate-pulse">
-                  <Sparkles className="w-3.5 h-3.5" />
+                <div className="relative group cursor-help px-2 py-0.5 bg-blue-900/50 text-blue-300 border border-blue-700/50 rounded font-semibold flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
                   <span>[集中] {player.buffs.concentration}</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-blue-400 mb-0.5">[集中] バフ</div>
+                    <div className="leading-snug">1スタックにつき10%の確率（現在 {player.buffs.concentration * 10}%）で与ダメージが1.5倍になります。発動するとスタック数が半減します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
                 </div>
               )}
 
               {player.debuffs.overwhelmed > 0 && (
-                <div className="px-2 py-0.5 bg-red-900/50 text-red-300 border border-red-700/50 rounded font-semibold flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 animate-bounce" />
+                <div className="relative group cursor-help px-2 py-0.5 bg-red-900/50 text-red-300 border border-red-700/50 rounded font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-400 animate-bounce" />
                   <span>[圧倒] {player.debuffs.overwhelmed}</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-red-400 mb-0.5">[圧倒] デバフ</div>
+                    <div className="leading-snug">タイピングの制限時間が25%減少します。ターン終了時に数値が1減少します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
                 </div>
               )}
 
               {player.debuffs.weakened > 0 && (
-                <div className="px-2 py-0.5 bg-yellow-900/50 text-yellow-300 border border-yellow-700/50 rounded font-semibold flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" />
+                <div className="relative group cursor-help px-2 py-0.5 bg-yellow-900/50 text-yellow-300 border border-yellow-700/50 rounded font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-400" />
                   <span>[脱力] {player.debuffs.weakened}</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-yellow-400 mb-0.5">[脱力] デバフ</div>
+                    <div className="leading-snug">自身の与ダメージが30%減少します。ターン終了時に数値が1減少します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
                 </div>
               )}
 
               {player.debuffs.poison > 0 && (
-                <div className="px-2 py-0.5 bg-red-900/50 text-red-300 border border-red-700/50 rounded font-semibold flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" />
+                <div className="relative group cursor-help px-2 py-0.5 bg-purple-950/60 text-purple-300 border border-purple-800/50 rounded font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-purple-400" />
                   <span>[毒] {player.debuffs.poison}</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-purple-400 mb-0.5">[毒] デバフ</div>
+                    <div className="leading-snug">ターン終了時に3ダメージを受けます。既に毒状態でさらに毒を受けると「猛毒」状態に悪化。ターン終了時に数値が1減少します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
                 </div>
               )}
 
               {player.debuffs.deadlyPoison && (
-                <div className="px-2 py-0.5 bg-orange-900/50 text-orange-300 border border-orange-700/50 rounded font-semibold flex items-center gap-1 animate-pulse">
-                  <AlertTriangle className="w-3.5 h-3.5" />
+                <div className="relative group cursor-help px-2 py-0.5 bg-orange-900/50 text-orange-300 border border-orange-700/50 rounded font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
                   <span>[猛毒]</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-orange-400 mb-0.5">[猛毒] デバフ</div>
+                    <div className="leading-snug">ターン終了時に最大体力の8%のダメージを受けます。戦闘終了まで持続します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
           {/* 敵情報 */}
-          <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl" id="enemy-status-card">
+          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl" id="enemy-status-card">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <SkullIcon type={enemy.type} />
@@ -918,21 +957,40 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
               />
             </div>
 
-            <div className="mt-3 text-xs font-mono text-slate-400 leading-relaxed bg-slate-950/40 p-2.5 rounded border border-slate-800/50">
+            <div className="relative group cursor-help mt-3 text-xs font-mono text-slate-400 leading-relaxed bg-slate-950/40 p-2.5 rounded border border-slate-800/50">
               <div className="font-bold text-red-500 flex items-center gap-1.5 mb-1">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>パッシブ：{enemy.passiveName}</span>
               </div>
               <div>{enemy.passiveDesc}</div>
+              {/* ツールチップ */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                <div className="font-bold text-red-400 mb-0.5">敵パッシブ効果</div>
+                <div className="leading-snug">敵が常時、または特定の条件で自動的に発動する固有の能力です。</div>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+              </div>
             </div>
 
             <div className="mt-2.5 flex items-center gap-2 text-xs">
-              <span className="px-2 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded font-semibold">
+              <span className="relative group cursor-help px-2 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded font-semibold">
                 攻撃威力: {enemy.baseAtk}
+                {/* ツールチップ */}
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                  <div className="font-bold text-slate-100 mb-0.5">敵攻撃威力</div>
+                  <div className="leading-snug">敵がターンに繰り出す攻撃の基礎威力。ここから一定の揺らぎを伴ってダメージを計算します。</div>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                </div>
               </span>
               {enemy.buffs.concentration > 0 && (
-                <span className="px-2 py-0.5 bg-blue-900/50 text-blue-300 border border-blue-700/50 rounded font-semibold">
-                  集中: {enemy.buffs.concentration}
+                <span className="relative group cursor-help px-2 py-0.5 bg-blue-900/50 text-blue-300 border border-blue-700/50 rounded font-semibold flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                  <span>集中: {enemy.buffs.concentration}</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-blue-400 mb-0.5">敵 [集中] バフ</div>
+                    <div className="leading-snug">敵の1スタックにつき10%の確率（現在 {enemy.buffs.concentration * 10}%）で与ダメージが1.5倍になります。発動するとスタック数が半減します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
                 </span>
               )}
             </div>
@@ -940,12 +998,12 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         </div>
 
         {/* メインタイピング作業ステージ */}
-        <div className="p-8 bg-slate-900/30 border border-slate-800 rounded-3xl relative min-h-[300px] flex flex-col justify-between overflow-hidden shadow-xl" id="typing-stage">
+        <div className="p-6 bg-slate-900/30 border border-slate-800 rounded-2xl relative min-h-[250px] flex flex-col justify-between overflow-hidden shadow-xl" id="typing-stage">
           {/* Grid Background */}
           <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: "radial-gradient(#64748b 1px, transparent 1px)", backgroundSize: "32px 32px" }}></div>
           
           {/* 上部: タイマー ＆ フェーズ案内 */}
-          <div className="flex items-center justify-between mb-6 relative z-10">
+          <div className="flex items-center justify-between mb-4 relative z-10">
             <span className="px-3 py-1 bg-slate-950 rounded-lg text-xs font-mono text-red-500 uppercase tracking-widest border border-slate-800">
               {phase === 'SELECT_ACTION' ? 'ACTION SELECT' : phase === 'TYPING_ACTION' ? 'TYPING NOW!' : 'SYSTEM PROCESS'}
             </span>
@@ -1038,7 +1096,7 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
           </div>
 
           {/* 下部: ミスカウントやキー解説 */}
-          <div className="mt-8 pt-4 border-t border-slate-800/50 flex items-center justify-between text-xs text-slate-500 font-sans relative z-10">
+          <div className="mt-6 pt-3 border-t border-slate-800/50 flex items-center justify-between text-xs text-slate-500 font-sans relative z-10">
             <div>
               ミス入力: <span className="font-bold text-red-500">{mistakeCount}</span> 回
             </div>
@@ -1055,13 +1113,13 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
       <div className="lg:col-span-4 space-y-4 flex flex-col h-full">
         
         {/* バトルログ */}
-        <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl h-[310px] flex flex-col justify-between" id="battle-log-card">
+        <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl h-[230px] flex flex-col justify-between" id="battle-log-card">
           <div className="text-sm font-sans font-extrabold text-slate-200 border-b border-slate-800 pb-2 flex items-center justify-between">
             <span>戦闘ログ</span>
             <span className="text-xs text-slate-500 font-mono">Turn {turn}</span>
           </div>
 
-          <div className="flex-1 overflow-y-auto mt-3 pr-1 space-y-2 max-h-[235px] text-xs font-sans text-left scrollbar-thin scrollbar-thumb-slate-800">
+          <div ref={logContainerRef} className="flex-1 overflow-y-auto mt-2 pr-1 space-y-2 max-h-[160px] text-xs font-sans text-left scrollbar-thin scrollbar-thumb-slate-800">
             {logs.length === 0 ? (
               <div className="text-slate-500 text-center py-10 italic">
                 ここに戦闘の記録が刻まれます。
@@ -1084,27 +1142,45 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
                 );
               })
             )}
-            <div ref={logEndRef} />
           </div>
         </div>
 
         {/* 右側：バフ・デバフ解説カード (デザインHTMLより) */}
         <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-lg text-xs" id="status-definitions-card">
-          <div className="text-slate-400 font-bold mb-2 uppercase tracking-tighter">Status Definitions</div>
-          <div className="space-y-3">
-            <div>
-              <div className="text-blue-400 font-bold underline mb-1">[集中]</div>
-              <p className="text-[10px] text-slate-500 leading-normal">与ダメージ1.5倍に。発動時、数値を半減。</p>
+          <button 
+            onClick={() => setShowDefinitions(!showDefinitions)}
+            className="w-full flex items-center justify-between text-slate-400 font-bold uppercase tracking-tighter hover:text-slate-200 transition-colors cursor-pointer"
+          >
+            <span>Status Definitions</span>
+            <span className="text-[10px] text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 font-mono">
+              {showDefinitions ? 'HIDE ▲' : 'SHOW ▼'}
+            </span>
+          </button>
+          
+          {showDefinitions && (
+            <div className="mt-3 grid grid-cols-2 lg:grid-cols-1 gap-x-4 gap-y-2 pt-2 border-t border-slate-800/50">
+              <div>
+                <div className="text-blue-400 font-bold underline mb-0.5">[集中] (バフ)</div>
+                <p className="text-[10px] text-slate-500 leading-snug">1スタックにつき10%の確率で、攻撃的中時に与ダメージが1.5倍に。発動で半減。</p>
+              </div>
+              <div>
+                <div className="text-red-400 font-bold underline mb-0.5">[圧倒] (デバフ)</div>
+                <p className="text-[10px] text-slate-500 leading-snug">タイピングの制限時間が25%減少。ターン終了時に数値が1減少。</p>
+              </div>
+              <div>
+                <div className="text-yellow-400 font-bold underline mb-0.5">[脱力] (デバフ)</div>
+                <p className="text-[10px] text-slate-500 leading-snug">与ダメージが30%減少。ターン終了時に数値が1減少。</p>
+              </div>
+              <div>
+                <div className="text-purple-400 font-bold underline mb-0.5">[毒] (デバフ)</div>
+                <p className="text-[10px] text-slate-500 leading-snug">ターン終了時に3ダメージ。さらに毒を受けると「猛毒」に。ターン終了時に数値が1減少。</p>
+              </div>
+              <div className="col-span-2 lg:col-span-1">
+                <div className="text-orange-400 font-bold underline mb-0.5">[猛毒] (デバフ)</div>
+                <p className="text-[10px] text-slate-500 leading-snug">ターン終了時に最大体力の8%のダメージ。この戦闘が終了するまで持続。</p>
+              </div>
             </div>
-            <div>
-              <div className="text-red-400 font-bold underline mb-1">[圧倒]</div>
-              <p className="text-[10px] text-slate-500 leading-normal">制限時間が25%減少。ターン終了時に数値-1。</p>
-            </div>
-            <div>
-              <div className="text-orange-400 font-bold underline mb-1">[猛毒]</div>
-              <p className="text-[10px] text-slate-500 leading-normal">ターン終了時に最大体力の8%ダメージ。戦闘終了まで持続。</p>
-            </div>
-          </div>
+          )}
         </div>
 
       </div>
