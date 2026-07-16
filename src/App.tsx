@@ -61,8 +61,8 @@ export default function App() {
       let concentrationGenLevel = prev.concentrationGenLevel;
 
       if (rewardIndex === 0) {
-        // 基本攻撃威力+1、攻撃コマンドのタイピング制限時間-10%
-        baseAtk += 1;
+        // 基本攻撃威力+3、攻撃コマンドのタイピング制限時間-10%
+        baseAtk += 3;
         atkLimitReductionLevel += 1;
       } else if (rewardIndex === 1) {
         // 全タイピング制限時間5%増加

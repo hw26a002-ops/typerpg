@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Shield, Zap, Sparkles, Heart, RefreshCw, AlertTriangle, Flame, ShieldAlert } from 'lucide-react';
 import { PlayerStatus, EnemyStatus, ActionType, BattleLog, EnemyType } from '../types';
 import { generateEnemy } from '../data/enemies';
-import { getRandomWord, ATTACK_WORDS, STRONG_ATTACK_WORDS, DEFEND_WORDS, EVADE_WORDS } from '../data/words';
+import { getRandomWord, ATTACK_WORDS, STRONG_ATTACK_WORDS, DEFEND_WORDS, EVADE_WORDS, WordPair } from '../data/words';
 import { isValidPrefix, isCompleteMatch, getNextValidKeys } from '../utils/typing';
 
 interface BattleScreenProps {
@@ -24,6 +24,7 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
   const [selectedAction, setSelectedAction] = useState<ActionType | null>(null);
   const [menuInput, setMenuInput] = useState<string>('');
   const [targetHiragana, setTargetHiragana] = useState<string>('');
+  const [targetKanji, setTargetKanji] = useState<string>('');
   const [typedInput, setTypedInput] = useState<string>('');
   const [isFailed, setIsFailed] = useState<boolean>(false); // 強攻撃・回避用の即失敗フラグ
   const [mistakeCount, setMistakeCount] = useState<number>(0);
@@ -55,8 +56,8 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
   // 全制限時間の計算ユーティリティ
   const calculateAllowedTime = (baseTime: number, isAttack: boolean = false): number => {
-    // 全制限時間増加（+5% × レベル）
-    let time = baseTime * (1 + 0.05 * player.allLimitIncreaseLevel);
+    // 全制限時間増加（+15% × レベル）
+    let time = baseTime * (1 + 0.15 * player.allLimitIncreaseLevel);
     // 攻撃コマンド制限時間減少（-10% × レベル）
     if (isAttack) {
       time = time * (1 - 0.1 * player.atkLimitReductionLevel);
@@ -143,7 +144,7 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
   // タイマーループ
   useEffect(() => {
-    if (phase === 'SELECT_ACTION' || phase === 'TYPING_ACTION') {
+    if (phase === 'TYPING_ACTION') {
       timerRef.current = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 0.1) {
@@ -279,24 +280,24 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
     setMistakeCount(0);
     setIsFailed(false);
 
-    let word = '';
+    let wordPair: WordPair = { kanji: '', hiragana: '' };
     let baseTime = 15;
 
     switch (action) {
       case 'ATTACK':
-        word = getRandomWord(ATTACK_WORDS);
+        wordPair = getRandomWord(ATTACK_WORDS);
         baseTime = 5;
         break;
       case 'STRONG_ATTACK':
-        word = getRandomWord(STRONG_ATTACK_WORDS);
+        wordPair = getRandomWord(STRONG_ATTACK_WORDS);
         baseTime = 7;
         break;
       case 'DEFEND':
-        word = getRandomWord(DEFEND_WORDS);
+        wordPair = getRandomWord(DEFEND_WORDS);
         baseTime = 15;
         break;
       case 'EVADE':
-        word = getRandomWord(EVADE_WORDS);
+        wordPair = getRandomWord(EVADE_WORDS);
         baseTime = 5;
         // ゴーレムパッシブ: 回避入力時間を -2秒
         if (enemy.type === 'GOLEM') {
@@ -305,7 +306,8 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         break;
     }
 
-    setTargetHiragana(word);
+    setTargetHiragana(wordPair.hiragana);
+    setTargetKanji(wordPair.kanji);
     
     // 制限時間算出
     const limit = calculateAllowedTime(baseTime, action === 'ATTACK');
@@ -729,8 +731,15 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
     return (
       <div className="text-center font-sans">
+        {/* 漢字お題 */}
+        {targetKanji && targetKanji !== targetHiragana && (
+          <div className="text-xl font-bold text-slate-400 tracking-wide mb-2 select-none" id="target-kanji">
+            {targetKanji}
+          </div>
+        )}
+
         {/* ひらがなお題 */}
-        <div className="text-3xl font-black text-white tracking-wide mb-6 animate-pulse select-none" id="target-hiragana">
+        <div className="text-3xl font-black text-white tracking-wide mb-6 select-none" id="target-hiragana">
           {targetHiragana}
         </div>
 
@@ -1009,16 +1018,21 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
             </span>
             
             {/* 制限時間タイマー */}
-            {(phase === 'SELECT_ACTION' || phase === 'TYPING_ACTION') && (
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs font-mono text-red-500 font-bold">{timeLeft.toFixed(1)}s</span>
-                <div className="w-24 bg-slate-950 rounded-full h-2 border border-slate-800 overflow-hidden">
+            {phase === 'TYPING_ACTION' && (
+              <div className="flex items-center gap-3 bg-slate-950/60 px-3.5 py-2 rounded-xl border border-red-900/30">
+                <span className="text-xl md:text-2xl font-mono text-red-500 font-black tracking-wider drop-shadow-[0_0_6px_rgba(239,68,68,0.3)]">{timeLeft.toFixed(1)}s</span>
+                <div className="w-32 bg-slate-950 rounded-full h-3 border border-slate-800 overflow-hidden">
                   <motion.div
-                    className="bg-red-600 h-full shadow-[0_0_8px_rgba(220,38,38,0.5)]"
+                    className="bg-gradient-to-r from-red-600 to-amber-500 h-full shadow-[0_0_10px_rgba(239,68,68,0.5)]"
                     animate={{ width: `${timerPercentage}%` }}
                     transition={{ duration: 0.1 }}
                   />
                 </div>
+              </div>
+            )}
+            {phase === 'SELECT_ACTION' && (
+              <div className="flex items-center gap-3 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800/50">
+                <span className="text-xs md:text-sm font-mono text-slate-500 font-bold tracking-wide">制限時間なし</span>
               </div>
             )}
           </div>

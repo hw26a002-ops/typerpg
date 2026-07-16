@@ -16,14 +16,14 @@ export default function RewardScreen({ floor, player, onSelectReward }: RewardSc
   const rewards = [
     {
       title: "剛腕のルーン",
-      desc: "基本攻撃威力 +1 ＆ 攻撃コマンドのタイピング制限時間 -10%",
+      desc: "基本攻撃威力 +3 ＆ 攻撃コマンドのタイピング制限時間 -10%",
       subDesc: "より鋭く、強力な一撃を叩き込むための攻撃的強化。",
       icon: Zap,
       color: "from-red-950/20 to-slate-900/40 hover:border-red-500/40 border-slate-800 text-red-400",
     },
     {
       title: "疾風のルーン",
-      desc: "全タイピング制限時間 5% 増加",
+      desc: "全タイピング制限時間 15% 増加",
       subDesc: "すべての行動に余裕を持たせ、じっくりとタイプできるようにする。",
       icon: Compass,
       color: "from-blue-950/20 to-slate-900/40 hover:border-blue-500/40 border-slate-800 text-blue-400",
