@@ -1,6 +1,6 @@
 import { EnemyStatus, EnemyType } from '../types';
 
-export const ENEMY_TEMPLATES: Record<Exclude<EnemyType, 'SHADOW'>, Omit<EnemyStatus, 'hp' | 'buffs'>> = {
+export const ENEMY_TEMPLATES: Record<Exclude<EnemyType, 'SHADOW'>, Omit<EnemyStatus, 'hp' | 'buffs' | 'ironShell'>> = {
   GOBLIN: {
     type: 'GOBLIN',
     name: 'ゴブリン戦士',
@@ -33,6 +33,14 @@ export const ENEMY_TEMPLATES: Record<Exclude<EnemyType, 'SHADOW'>, Omit<EnemySta
     passiveName: '小柄/猛毒',
     passiveDesc: 'プレイヤーに攻撃的中時、50%の確率で[毒]3を付与（既に猛毒状態なら付与しない）。',
   },
+  ROBOT: {
+    type: 'ROBOT',
+    name: 'ロボット兵士',
+    maxHp: 100,
+    baseAtk: 10, // 戦術変更により、HP50%以上時は戦闘開始時に -5 されて 5 になる
+    passiveName: '戦術変更',
+    passiveDesc: '戦闘開始時、鋼鉄外殻7を得る。HP50%以上で基本攻撃力-5、鋼鉄外殻が減少せず維持（ターン終了時。被ダメージ時は減少）。HP50%未満で基本攻撃力+5、自分の鋼鉄外殻を除去し必ず先制攻撃。',
+  },
 };
 
 export function generateEnemy(floor: number, playerBaseAtk: number): EnemyStatus {
@@ -47,16 +55,32 @@ export function generateEnemy(floor: number, playerBaseAtk: number): EnemyStatus
       buffs: {
         concentration: 0,
       },
+      ironShell: 0,
       passiveName: '決闘者',
       passiveDesc: '10層にのみ出現。現在のターン数だけ基本攻撃威力が増加する。',
     };
   }
 
-  // 1〜9層はランダムに選択
-  const types: Exclude<EnemyType, 'SHADOW'>[] = ['GOBLIN', 'SKELETON', 'GOLEM', 'SPIDER'];
+  if (floor === 5) {
+    // 5層はロボット兵士固定
+    const template = ENEMY_TEMPLATES.ROBOT;
+    // 戦闘開始時に鋼鉄外殻7を得る。
+    // また「体力が50%以上なら、基本攻撃威力-5」が適用される。
+    // 初期HPは100%（50%以上）なので、初期 baseAtk は 10 - 5 = 5 になる。
+    return {
+      ...template,
+      hp: template.maxHp,
+      baseAtk: template.baseAtk - 5, // HP50%以上なので基本攻撃威力-5
+      buffs: {
+        concentration: 0,
+      },
+      ironShell: 7, // 戦闘開始時、鋼鉄外殻7
+    };
+  }
+
+  // 1〜9層（5層除く）はランダムに選択。ROBOT と SHADOW は除外。
+  const types: Exclude<EnemyType, 'SHADOW' | 'ROBOT'>[] = ['GOBLIN', 'SKELETON', 'GOLEM', 'SPIDER'];
   
-  // 初心者向けに、1層はHPや攻撃威力が低めのスパイダーやゴブリンが出やすいなど、
-  // あるいは完全ランダムにする。
   const randomType = types[Math.floor(Math.random() * types.length)];
   const template = ENEMY_TEMPLATES[randomType];
 
@@ -66,5 +90,6 @@ export function generateEnemy(floor: number, playerBaseAtk: number): EnemyStatus
     buffs: {
       concentration: 0,
     },
+    ironShell: 0,
   };
 }

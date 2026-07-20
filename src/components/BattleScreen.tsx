@@ -4,7 +4,7 @@ import { Shield, Zap, Sparkles, Heart, RefreshCw, AlertTriangle, Flame, ShieldAl
 import { PlayerStatus, EnemyStatus, ActionType, BattleLog, EnemyType } from '../types';
 import { generateEnemy } from '../data/enemies';
 import { getRandomWord, ATTACK_WORDS, STRONG_ATTACK_WORDS, DEFEND_WORDS, EVADE_WORDS, WordPair } from '../data/words';
-import { isValidPrefix, isCompleteMatch, getNextValidKeys } from '../utils/typing';
+import { isValidPrefix, isCompleteMatch, getNextValidKeys, getCompletedHiraganaLength } from '../utils/typing';
 
 interface BattleScreenProps {
   floor: number;
@@ -26,18 +26,49 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
   const [targetHiragana, setTargetHiragana] = useState<string>('');
   const [targetKanji, setTargetKanji] = useState<string>('');
   const [typedInput, setTypedInput] = useState<string>('');
+  const typedInputRef = useRef<string>('');
+
+  const setTypedInputAndRef = (input: string) => {
+    setTypedInput(input);
+    typedInputRef.current = input;
+  };
+
   const [isFailed, setIsFailed] = useState<boolean>(false); // 強攻撃・回避用の即失敗フラグ
   const [mistakeCount, setMistakeCount] = useState<number>(0);
   const [typedCharactersCount, setTypedCharactersCount] = useState<number>(0); // 防御などの入力文字数カウント
+  const typedCharactersCountRef = useRef<number>(0);
+  const loggedTurnRef = useRef<number>(0);
+
+  const setCharactersCount = (count: number) => {
+    setTypedCharactersCount(count);
+    typedCharactersCountRef.current = count;
+  };
+
+  const [isTimeExceeded, setIsTimeExceeded] = useState<boolean>(false);
+  const isTimeExceededRef = useRef<boolean>(false);
+
+  const setIsTimeExceededAndRef = (val: boolean) => {
+    setIsTimeExceeded(val);
+    isTimeExceededRef.current = val;
+  };
 
   // タイマー関連
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [totalAllowedTime, setTotalAllowedTime] = useState<number>(0);
 
   // ターン履歴
+  const [enemyPreemptedThisTurn, setEnemyPreemptedThisTurn] = useState<boolean>(false);
   const [golemActionReady, setGolemActionReady] = useState<boolean>(true); // ゴーレムの行動可能フラグ
   const [playerUsedActionThisTurn, setPlayerUsedActionThisTurn] = useState<boolean>(false); // 毒判定用
   const [showDefinitions, setShowDefinitions] = useState<boolean>(false); // ステータス効果解説の開閉用
+
+  // パッシブスキル関連一時ステート
+  const [foreseeCharge, setForeseeCharge] = useState<number>(0);
+  const [isForeseeEvading, setIsForeseeEvading] = useState<boolean>(false);
+  const [foreseeEvadeSuccess, setForeseeEvadeSuccess] = useState<boolean | null>(null);
+  const [duelCriticalActive, setDuelCriticalActive] = useState<boolean>(false);
+  const [killerDamageReserve, setKillerDamageReserve] = useState<boolean>(false);
+  const [killerTargetInput, setKillerTargetInput] = useState<string>('');
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -53,6 +84,34 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [logs]);
+
+  // ロボット兵士の戦術変更パッシブ監視
+  useEffect(() => {
+    if (enemy.type === 'ROBOT') {
+      const isBelow50 = enemy.hp < (enemy.maxHp * 0.5);
+      
+      if (isBelow50) {
+        // HP50%未満
+        if (enemy.baseAtk !== 15 || enemy.ironShell > 0) {
+          setEnemy(prev => ({
+            ...prev,
+            baseAtk: 15,
+            ironShell: 0,
+          }));
+          addLog(`ロボット兵士の【戦術変更】発動！ 鋼鉄外殻をパージし、基本攻撃威力が 15 に上昇！ さらに先制行動を開始！`, 'enemy_info');
+        }
+      } else {
+        // HP50%以上
+        if (enemy.baseAtk !== 5) {
+          setEnemy(prev => ({
+            ...prev,
+            baseAtk: 5,
+          }));
+          addLog(`ロボット兵士の【戦術変更】維持：基本攻撃威力 5。鋼鉄外殻が維持されている。`, 'enemy_info');
+        }
+      }
+    }
+  }, [enemy.hp]);
 
   // 全制限時間の計算ユーティリティ
   const calculateAllowedTime = (baseTime: number, isAttack: boolean = false): number => {
@@ -76,6 +135,25 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
   // 戦闘開始 & ターン開始時
   useEffect(() => {
     if (phase === 'START') {
+      if (loggedTurnRef.current === turn) return;
+      loggedTurnRef.current = turn;
+
+      // ターン開始時にパッシブの一時フラグをリセット
+      setForeseeEvadeSuccess(null);
+      setIsForeseeEvading(false);
+
+      // 戦闘開始時（1ターン目）のみパッシブの初期チャージなどを設定
+      if (turn === 1) {
+        if (player.passive === 'FORESEE') {
+          setForeseeCharge(5);
+          addLog(`パッシブ【予知】発動：戦闘開始時に「未来予知」 5 を得た！`, 'buff');
+        } else {
+          setForeseeCharge(0);
+        }
+        setKillerDamageReserve(false);
+        setDuelCriticalActive(false);
+      }
+
       addLog(`▼ ターン ${turn} が開始された！`, 'system');
 
       // 1. プレイヤーの [集中] 毎ターン自動獲得 (報酬ボーナス)
@@ -131,13 +209,20 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
       // 行動選択フェーズへ移行
       setTimeout(() => {
-        setPhase('SELECT_ACTION');
-        setMenuInput('');
         setSelectedAction(null);
-        
-        const limit = calculateAllowedTime(15);
-        setTimeLeft(limit);
-        setTotalAllowedTime(limit);
+        // ロボット兵士の先制攻撃判定
+        if (enemy.type === 'ROBOT' && enemy.hp < (enemy.maxHp * 0.5) && !enemyPreemptedThisTurn) {
+          addLog(`ロボット兵士の【先制行動】！ プレイヤーの行動より先に攻撃を仕掛けてきた！`, 'enemy_info');
+          setEnemyPreemptedThisTurn(true);
+          setPhase('ENEMY_TURN');
+        } else {
+          setPhase('SELECT_ACTION');
+          setMenuInput('');
+          
+          const limit = calculateAllowedTime(15);
+          setTimeLeft(limit);
+          setTotalAllowedTime(limit);
+        }
       }, 800);
     }
   }, [phase, turn]);
@@ -149,9 +234,14 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         setTimeLeft(prev => {
           if (prev <= 0.1) {
             clearInterval(timerRef.current!);
-            // タイムオーバー
-            handleTimeOver();
-            return 0;
+            if (selectedAction === 'ATTACK') {
+              setIsTimeExceededAndRef(true);
+              return 0;
+            } else {
+              // タイムオーバー
+              handleTimeOver();
+              return 0;
+            }
           }
           return prev - 0.1;
         });
@@ -161,17 +251,27 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [phase]);
+  }, [phase, selectedAction]);
 
   // タイムオーバー処理
   const handleTimeOver = () => {
     addLog("制限時間切れ！ 行動に失敗した。", "player_damage");
     if (phase === 'TYPING_ACTION') {
+      if (isForeseeEvading) {
+        addLog(`予知による回避に失敗！ 敵の攻撃を避けられなかった！`, 'player_damage');
+        setForeseeEvadeSuccess(false);
+        setIsForeseeEvading(false);
+        setTimeout(() => {
+          setPhase('ENEMY_TURN');
+        }, 600);
+        return;
+      }
       // 防御中であれば、そこまで入力した文字数で部分判定
       if (selectedAction === 'DEFEND') {
-        const lettersCount = typedInput.length;
-        setTypedCharactersCount(lettersCount);
-        addLog(`なんとか ${lettersCount} 文字を盾にし、防御の構えをとった！`, "player_info");
+        const lettersCount = getCompletedHiraganaLength(targetHiragana, typedInputRef.current);
+        setCharactersCount(lettersCount);
+        const displayedCount = Math.round(lettersCount * 10) / 10;
+        addLog(`なんとか ${displayedCount} 文字を盾にし、防御の構えをとった！`, "player_info");
       } else {
         setIsFailed(true);
       }
@@ -179,7 +279,11 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
       setIsFailed(true);
     }
     
-    setPhase('ENEMY_TURN');
+    if (enemy.type === 'ROBOT' && enemyPreemptedThisTurn) {
+      setPhase('TURN_END');
+    } else {
+      setPhase('ENEMY_TURN');
+    }
   };
 
   // ==========================================
@@ -234,18 +338,33 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         const nextInput = typedInput + key;
 
         if (isValidPrefix(targetHiragana, nextInput)) {
-          setTypedInput(nextInput);
+          setTypedInputAndRef(nextInput);
+
+          // タイピング成功した時点での正確なひらがな文字数をリアルタイムに更新
+          const currentCount = getCompletedHiraganaLength(targetHiragana, nextInput);
+          setCharactersCount(currentCount);
 
           // 完全一致したか
           if (isCompleteMatch(targetHiragana, nextInput)) {
             // タイピング成功！
-            if (selectedAction === 'DEFEND') {
-              // 防御の場合はすべて打ち終えても追加ダメージ軽減などは特になく、
-              // 文字数カウントの都合上、最後まで打ち終わったら自動で敵のターンへ進む
-              setTypedCharactersCount(targetHiragana.length);
-              addLog(`完璧な防御！ ${targetHiragana.length}文字による強固な盾を展開した！`, 'player_info');
+            if (isForeseeEvading) {
+              addLog(`予知による回避に成功！ 敵の攻撃を完全に受け流した！`, 'player_info');
+              setForeseeEvadeSuccess(true);
+              setIsForeseeEvading(false);
               setTimeout(() => {
                 setPhase('ENEMY_TURN');
+              }, 600);
+            } else if (selectedAction === 'DEFEND') {
+              // 防御の場合はすべて打ち終えても追加ダメージ軽減などは特になく、
+              // 文字数カウントの都合上、最後まで打ち終わったら自動で敵のターンへ進む
+              setCharactersCount(targetHiragana.length);
+              addLog(`完璧な防御！ ${targetHiragana.length}文字による強固な盾を展開した！`, 'player_info');
+              setTimeout(() => {
+                if (enemy.type === 'ROBOT' && enemyPreemptedThisTurn) {
+                  setPhase('TURN_END');
+                } else {
+                  setPhase('ENEMY_TURN');
+                }
               }, 600);
             } else {
               executePlayerAction(nextInput);
@@ -258,10 +377,23 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
           // 強攻撃または回避の場合は1文字でもミスすると即座に失敗
           if (selectedAction === 'STRONG_ATTACK' || selectedAction === 'EVADE') {
             setIsFailed(true);
-            addLog(`タイピングミス！ ${selectedAction === 'STRONG_ATTACK' ? '強攻撃' : '回避'}に失敗した。`, 'player_damage');
-            setTimeout(() => {
-              setPhase('ENEMY_TURN');
-            }, 1000);
+            if (isForeseeEvading) {
+              addLog(`タイピングミス！ 予知による回避に失敗した。`, 'player_damage');
+              setForeseeEvadeSuccess(false);
+              setIsForeseeEvading(false);
+              setTimeout(() => {
+                setPhase('ENEMY_TURN');
+              }, 1000);
+            } else {
+              addLog(`タイピングミス！ ${selectedAction === 'STRONG_ATTACK' ? '強攻撃' : '回避'}に失敗した。`, 'player_damage');
+              setTimeout(() => {
+                if (enemy.type === 'ROBOT' && enemyPreemptedThisTurn) {
+                  setPhase('TURN_END');
+                } else {
+                  setPhase('ENEMY_TURN');
+                }
+              }, 1000);
+            }
           }
         }
       }
@@ -276,9 +408,11 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
     if (timerRef.current) clearInterval(timerRef.current);
     
     setSelectedAction(action);
-    setTypedInput('');
+    setTypedInputAndRef('');
     setMistakeCount(0);
     setIsFailed(false);
+    setCharactersCount(0);
+    setIsTimeExceededAndRef(false);
 
     let wordPair: WordPair = { kanji: '', hiragana: '' };
     let baseTime = 15;
@@ -323,6 +457,16 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
     setPlayerUsedActionThisTurn(true);
 
+    if (player.passive === 'KILLER' && selectedAction === 'STRONG_ATTACK') {
+      addLog(`「${targetHiragana}」のノーミスタイピングに成功！ パッシブ【殺手】発動：敵の攻撃の後に肉斬骨断の一撃を放ちます！`, 'player_info');
+      setKillerDamageReserve(true);
+      setKillerTargetInput(finalInput);
+      setTimeout(() => {
+        setPhase('ENEMY_TURN');
+      }, 1000);
+      return;
+    }
+
     if (selectedAction === 'EVADE') {
       addLog(`「${targetHiragana}」のノーミスタイピングに成功！ 回避体勢をとった！`, 'player_info');
       setTimeout(() => {
@@ -336,8 +480,15 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
     let isMagic = false;
 
     if (selectedAction === 'ATTACK') {
-      rawDamage = targetHiragana.length + player.baseAtk;
-      text = `「${targetHiragana}」のタイピングに成功！ ${enemy.name}に攻撃を仕掛けた！`;
+      const baseAtkContribution = Math.max(0, targetHiragana.length - mistakeCount);
+      const totalBasePower = baseAtkContribution + player.baseAtk;
+      if (isTimeExceededRef.current) {
+        rawDamage = Math.floor(totalBasePower / 2);
+        text = `「${targetHiragana}」のタイピングに成功（時間超過・威力半減）！ ${enemy.name}に攻撃を仕掛けた！`;
+      } else {
+        rawDamage = totalBasePower;
+        text = `「${targetHiragana}」のタイピングに成功！ ${enemy.name}に攻撃を仕掛けた！`;
+      }
     } else if (selectedAction === 'STRONG_ATTACK') {
       rawDamage = Math.floor((targetHiragana.length + player.baseAtk) * 1.5);
       text = `「${targetHiragana}」のノーミスタイピングに成功！ 強力な攻撃！`;
@@ -352,15 +503,16 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
       addLog(`ガイコツ魔術師の【魔法熟練】：強攻撃ダメージが25%軽減される！`, 'enemy_info');
     }
 
-    // 2. 集中バフ判定: [集中]数値×10%の確率で、攻撃的中時に与ダメージ1.2倍
+    // 2. 集中バフ判定: [集中]数値×10%の確率で、攻撃的中時に与ダメージ
     let finalDamage = rawDamage;
     if (player.buffs.concentration > 0) {
       const chance = player.buffs.concentration * 10;
       const isTriggered = Math.random() * 100 < chance;
       
       if (isTriggered) {
-        finalDamage = Math.floor(finalDamage * 1.5);
-        addLog(`[集中]の効果が発動！ 与えるダメージが1.5倍（${finalDamage}）になった！`, 'buff');
+        const mult = duelCriticalActive ? 2.0 : 1.5;
+        finalDamage = Math.floor(finalDamage * mult);
+        addLog(`[集中]の効果が発動！ 与えるダメージが ${mult}倍（${finalDamage}）になった！`, 'buff');
         
         // 集中を半減（小数点切り捨て、0未満なら消滅＝0以下は消滅）
         setPlayer(prev => {
@@ -373,6 +525,10 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
             }
           };
         });
+
+        if (duelCriticalActive) {
+          setDuelCriticalActive(false);
+        }
       }
     }
 
@@ -382,18 +538,132 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
       addLog(`[脱力]の影響で与ダメージが30%減少した（${finalDamage}ダメージ）。`, 'debuff');
     }
 
+    // ROBOTパッシブ: 鋼鉄外殻
+    let nextIronShell = enemy.ironShell;
+    if (enemy.type === 'ROBOT' && enemy.ironShell > 0) {
+      const reductionPercent = enemy.ironShell * 10; // 1につき10%
+      const reducedDamage = Math.floor(finalDamage * (1 - reductionPercent / 100));
+      addLog(`ロボット兵士の【鋼鉄外殻】：ダメージを ${reductionPercent}% 軽減（-${finalDamage - reducedDamage}）した！`, 'enemy_info');
+      finalDamage = reducedDamage;
+
+      // 被ダメージ時にスタックが1減少
+      nextIronShell = Math.max(enemy.ironShell - 1, 0);
+      addLog(`被ダメージによりロボット兵士の鋼鉄外殻が 1 減少した（残り: ${nextIronShell}）。`, 'enemy_info');
+    }
+
     // ダメージ適用
     setEnemy(prev => {
       const nextHp = Math.max(prev.hp - finalDamage, 0);
-      return { ...prev, hp: nextHp };
+      return { 
+        ...prev, 
+        hp: nextHp,
+        ironShell: prev.type === 'ROBOT' ? nextIronShell : prev.ironShell
+      };
     });
 
     addLog(`${enemy.name}に ${finalDamage} のダメージを与えた！`, 'enemy_damage');
 
     // 次のフェーズへ進む
     setTimeout(() => {
-      setPhase('ENEMY_TURN');
+      if (enemy.type === 'ROBOT' && enemyPreemptedThisTurn) {
+        // 先制攻撃をすでに受けているので、直接ターン終了へ
+        setPhase('TURN_END');
+      } else {
+        setPhase('ENEMY_TURN');
+      }
     }, 1000);
+  };
+
+  // ==========================================
+  // 【殺手】カウンター攻撃の実行
+  // ==========================================
+  const executeKillerCounter = (receivedDmg: number) => {
+    // 威力計算：強攻撃本来の威力 (お題のひらがな文字数＋プレイヤーの基本攻撃力) * 1.5
+    let rawDamage = Math.floor((targetHiragana.length + player.baseAtk) * 1.5);
+    
+    // 殺手効果：受けたダメージの1.5倍を攻撃威力に加算
+    const addition = Math.floor(receivedDmg * 1.5);
+    const totalPower = rawDamage + addition;
+    
+    addLog(`【殺手】カウンター発動！ 被弾ダメージの1.5倍（+${addition} 威力）を強攻撃に上乗せ！`, 'buff');
+    
+    let finalDamage = totalPower;
+    
+    // ガイコツ魔術師パッシブ
+    if (enemy.type === 'SKELETON') {
+      finalDamage = Math.floor(finalDamage * 0.75);
+      addLog(`ガイコツ魔術師の【魔法熟練】：強攻撃ダメージが25%軽減される！`, 'enemy_info');
+    }
+    
+    // 集中バフ判定: [集中]数値×10%の確率で、カウンター時に与ダメージが1.5倍 (決闘宣布なら2倍)
+    if (player.buffs.concentration > 0) {
+      const chance = player.buffs.concentration * 10;
+      const isTriggered = Math.random() * 100 < chance;
+      
+      if (isTriggered) {
+        const mult = duelCriticalActive ? 2.0 : 1.5;
+        finalDamage = Math.floor(finalDamage * mult);
+        addLog(`[集中]の効果が発動！ カウンターダメージが ${mult}倍（${finalDamage}）になった！`, 'buff');
+        
+        setPlayer(prev => {
+          const nextConc = Math.floor(prev.buffs.concentration / 2);
+          return {
+            ...prev,
+            buffs: {
+              ...prev.buffs,
+              concentration: nextConc
+            }
+          };
+        });
+
+        if (duelCriticalActive) {
+          setDuelCriticalActive(false);
+        }
+      }
+    }
+    
+    // ロボット兵士の鋼鉄外殻
+    let nextIronShell = enemy.ironShell;
+    if (enemy.type === 'ROBOT' && enemy.ironShell > 0) {
+      const reductionPercent = enemy.ironShell * 10;
+      const reducedDamage = Math.floor(finalDamage * (1 - reductionPercent / 100));
+      addLog(`ロボット兵士の【鋼鉄外殻】：ダメージを ${reductionPercent}% 軽減（-${finalDamage - reducedDamage}）した！`, 'enemy_info');
+      finalDamage = reducedDamage;
+      
+      nextIronShell = Math.max(enemy.ironShell - 1, 0);
+      addLog(`被ダメージによりロボット兵士 of 鋼鉄外殻が 1 減少した（残り: ${nextIronShell}）。`, 'enemy_info');
+    }
+    
+    // ダメージ適用
+    setEnemy(prev => {
+      const nextHp = Math.max(prev.hp - finalDamage, 0);
+      return {
+        ...prev,
+        hp: nextHp,
+        ironShell: prev.type === 'ROBOT' ? nextIronShell : prev.ironShell
+      };
+    });
+    
+    addLog(`${enemy.name}に ${finalDamage} の肉斬骨断ダメージを与えた！`, 'enemy_damage');
+    
+    setKillerDamageReserve(false);
+    
+    // カウンター攻撃が終わったら遷移
+    setTimeout(() => {
+      if (enemy.hp - finalDamage <= 0) {
+        handleEnemyDefeated();
+      } else if (enemy.type === 'ROBOT' && enemyPreemptedThisTurn) {
+        setPhase('SELECT_ACTION');
+        setMenuInput('');
+        setSelectedAction(null);
+        
+        const limit = calculateAllowedTime(15);
+        setTimeLeft(limit);
+        setTotalAllowedTime(limit);
+      } else {
+        setPhase('TURN_END');
+      }
+    }, 1200);
   };
 
   // ==========================================
@@ -416,13 +686,46 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
           return;
         }
 
+        // パッシブ【予知】の割り込み回避タイピング判定
+        if (player.passive === 'FORESEE' && foreseeCharge > 0 && selectedAction !== 'EVADE' && !isForeseeEvading && foreseeEvadeSuccess === null) {
+          addLog(`パッシブ【予知】：未来予知を発動（スタックを 1 消費。残り ${foreseeCharge - 1}）！ 敵の攻撃を事前に予知し、回避を展開！`, 'buff');
+          setForeseeCharge(prev => Math.max(prev - 1, 0));
+          setIsForeseeEvading(true);
+          
+          // 回避タイピングをお題に設定して TYPING_ACTION へ
+          const wordPair = getRandomWord(EVADE_WORDS);
+          setTargetHiragana(wordPair.hiragana);
+          setTargetKanji(wordPair.kanji);
+          setTypedInputAndRef('');
+          setMistakeCount(0);
+          setIsFailed(false);
+          setCharactersCount(0);
+          setIsTimeExceededAndRef(false);
+
+          let baseTime = 5;
+          if (enemy.type === 'GOLEM') {
+            baseTime = Math.max(baseTime - 2, 1.0);
+          }
+          const limit = calculateAllowedTime(baseTime, false);
+          setTimeLeft(limit);
+          setTotalAllowedTime(limit);
+          setPhase('TYPING_ACTION');
+          return; // 敵ターン処理を中断し、タイピング完了後に再度このフェーズに入る
+        }
+
         // 敵の攻撃ダメージ計算: 敵の基本攻撃威力 ± 20% (小数点切り捨て)
         const variance = Math.floor(enemy.baseAtk * 0.2);
         const minDmg = enemy.baseAtk - variance;
         const maxDmg = enemy.baseAtk + variance;
         let rawEnemyDmg = Math.floor(minDmg + Math.random() * (maxDmg - minDmg + 1));
 
-        addLog(`${enemy.name}の攻撃！ 威力: ${rawEnemyDmg}`, 'enemy_info');
+        // 敵の [脱力] 判定: 与ダメージが30%減少
+        if (enemy.debuffs?.weakened && enemy.debuffs.weakened > 0) {
+          rawEnemyDmg = Math.floor(rawEnemyDmg * 0.7);
+          addLog(`${enemy.name}は[脱力]の影響で与ダメージが30%減少している（威力: ${rawEnemyDmg}）。`, 'debuff');
+        } else {
+          addLog(`${enemy.name}の攻撃！ 威力: ${rawEnemyDmg}`, 'enemy_info');
+        }
 
         // 敵の集中バフ判定: [集中]数値×10%の確率で、与ダメージ1.5倍
         if (enemy.buffs.concentration > 0) {
@@ -450,11 +753,11 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         let isHit = true; // 的中フラグ
 
         // 回避の場合の処理
-        if (selectedAction === 'EVADE' && !isFailed) {
+        if ((selectedAction === 'EVADE' && !isFailed) || (player.passive === 'FORESEE' && foreseeEvadeSuccess === true)) {
           finalPlayerDmg = 0;
           isHit = false;
           addLog(`華麗に回避！ 敵の攻撃を完全に受け流した！`, 'player_info');
-        } else if (selectedAction === 'EVADE' && isFailed) {
+        } else if ((selectedAction === 'EVADE' && isFailed) || (player.passive === 'FORESEE' && foreseeEvadeSuccess === false)) {
           // 回避失敗時は確実にダメージが直撃
           finalPlayerDmg = rawEnemyDmg;
           isHit = true;
@@ -471,10 +774,12 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
           } else {
             // 防御軽減率: 通常は文字数×5%、ゴーレムなら文字数×4%
             const ratePerLetter = enemy.type === 'GOLEM' ? 0.04 : 0.05;
-            const reductionRate = typedCharactersCount * ratePerLetter;
+            const actualCount = typedCharactersCountRef.current;
+            const reductionRate = actualCount * ratePerLetter;
             const percentage = Math.floor(reductionRate * 100);
+            const displayedCount = Math.round(actualCount * 10) / 10;
 
-            addLog(`盾を構えた！ 軽減率: ${percentage}% (文字数: ${typedCharactersCount}文字)`, 'player_info');
+            addLog(`盾を構えた！ 軽減率: ${percentage}% (文字数: ${displayedCount}文字)`, 'player_info');
 
             if (reductionRate >= 1.0) {
               // 100%超過時: 攻撃は的中していないものとする、カウンターダメージ発動
@@ -484,7 +789,7 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
 
               // カウンター計算
               const requiredCount = enemy.type === 'GOLEM' ? 25 : 20;
-              const excessLetters = Math.max(typedCharactersCount - requiredCount, 0);
+              const excessLetters = Math.max(actualCount - requiredCount, 0);
               const counterDmg = Math.floor(rawEnemyDmg * (excessLetters * ratePerLetter));
 
               if (counterDmg > 0) {
@@ -511,6 +816,19 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
             }));
           }, 0);
           addLog(`あなたは ${finalPlayerDmg} のダメージを受けた！`, 'player_damage');
+
+          if (player.passive === 'DUEL' && selectedAction === 'DEFEND') {
+            setTimeout(() => {
+              setPlayer(prev => ({
+                ...prev,
+                debuffs: {
+                  ...prev.debuffs,
+                  weakened: 2
+                }
+              }));
+            }, 0);
+            addLog(`【決闘宣布】発動！ 防御時の被ダメージにより、自身に [脱力] 2 が付与された！`, 'debuff');
+          }
         }
 
         // プレイヤーの生存確認
@@ -591,9 +909,37 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
           }
         }
 
-        // ターン終了フェーズへ
+        // ターン終了、または先制攻撃だった場合はプレイヤーの行動選択へ
         setTimeout(() => {
-          setPhase('TURN_END');
+          // 「決闘宣布」効果判定: 回避成功時、ターン終了時に [集中] 5 を得て次のターン クリティカル倍率 2.0 倍
+          const wasEvaded = (selectedAction === 'EVADE' && !isFailed) || (player.passive === 'FORESEE' && foreseeEvadeSuccess === true);
+          if (player.passive === 'DUEL' && wasEvaded) {
+            setDuelCriticalActive(true);
+            setPlayer(prev => ({
+              ...prev,
+              buffs: {
+                ...prev.buffs,
+                concentration: prev.buffs.concentration + 5
+              }
+            }));
+            addLog(`【決闘宣布】発動！ 回避成功により [集中] 5 獲得、次のターンのクリティカル倍率が 2.0 倍に上昇！`, 'buff');
+          }
+
+          // 「殺手」カウンター攻撃 or フェーズ移行
+          if (killerDamageReserve) {
+            executeKillerCounter(finalPlayerDmg);
+          } else if (enemy.type === 'ROBOT' && enemyPreemptedThisTurn) {
+            // 先制攻撃が終了したので、プレイヤーのコマンド選択へ
+            setPhase('SELECT_ACTION');
+            setMenuInput('');
+            setSelectedAction(null);
+            
+            const limit = calculateAllowedTime(15);
+            setTimeLeft(limit);
+            setTotalAllowedTime(limit);
+          } else {
+            setPhase('TURN_END');
+          }
         }, 1200);
       };
 
@@ -609,6 +955,23 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
         if (enemy.hp <= 0) {
           handleEnemyDefeated();
           return;
+        }
+
+        // 敵の [脱力] カウントダウン
+        if (enemy.debuffs?.weakened && enemy.debuffs.weakened > 0) {
+          const nextWeak = enemy.debuffs.weakened - 1;
+          setEnemy(prev => ({
+            ...prev,
+            debuffs: {
+              ...prev.debuffs,
+              weakened: nextWeak
+            }
+          }));
+          if (nextWeak === 0) {
+            addLog(`${enemy.name}の[脱力]が解除された！`, 'system');
+          } else {
+            addLog(`${enemy.name}の[脱力]が減少した（残り: ${nextWeak}）。`, 'system');
+          }
         }
 
         let totalPoisonDmg = 0;
@@ -670,6 +1033,21 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
             };
           });
         }, 0);
+
+        // ロボット兵士：鋼鉄外殻のターン終了時減少
+        if (enemy.type === 'ROBOT' && enemy.ironShell > 0) {
+          const isBelow50 = enemy.hp < (enemy.maxHp * 0.5);
+          if (isBelow50) {
+            setEnemy(prev => ({
+              ...prev,
+              ironShell: Math.max(prev.ironShell - 1, 0)
+            }));
+            addLog(`ロボット兵士の鋼鉄外殻が1減少した。`, 'enemy_info');
+          }
+        }
+
+        // 先制フラグのリセット
+        setEnemyPreemptedThisTurn(false);
 
         // ターン経過
         setTurn(prev => prev + 1);
@@ -842,8 +1220,29 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
   const timerPercentage = totalAllowedTime > 0 ? (timeLeft / totalAllowedTime) * 100 : 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-6xl w-full mx-auto p-2 items-start" id="battle-screen-container">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-6xl w-full mx-auto p-2 items-start relative" id="battle-screen-container">
       
+      {/* デバッグ用：9999ダメージボタン */}
+      <div className="absolute top-0 right-2 z-50">
+        <button
+          onClick={() => {
+            setEnemy(prev => {
+              const nextHp = Math.max(prev.hp - 9999, 0);
+              addLog(`【デバッグ】邪悪な呪文が発動し、敵に9999ダメージを与えた！`, 'player_info');
+              if (nextHp === 0) {
+                setTimeout(() => {
+                  handleEnemyDefeated();
+                }, 500);
+              }
+              return { ...prev, hp: nextHp };
+            });
+          }}
+          className="px-2 py-0.5 bg-red-950/60 hover:bg-red-900/80 text-red-400 hover:text-red-300 border border-red-900/30 rounded text-[10px] font-mono transition-all cursor-pointer shadow-sm select-none"
+        >
+          DEBUG: 9999 DMG
+        </button>
+      </div>
+
       {/* 左コラム: キャラクターのステータス & タイピングUI (8/12幅) */}
       <div className="lg:col-span-8 space-y-4">
         
@@ -945,6 +1344,28 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
                   </div>
                 </div>
               )}
+
+              {player.passive && (
+                <div className="relative group cursor-help px-2 py-0.5 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded font-semibold flex items-center gap-1 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                  <span>
+                    【{player.passive === 'FORESEE' ? '予知' : player.passive === 'DUEL' ? '決闘' : '殺手'}】
+                    {player.passive === 'FORESEE' && `(予知: ${foreseeCharge})`}
+                  </span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-indigo-300 mb-0.5">
+                      {player.passive === 'FORESEE' ? '予知のルーン' : player.passive === 'DUEL' ? '決闘のルーン' : '肉斬骨断のルーン'}
+                    </div>
+                    <div className="leading-snug">
+                      {player.passive === 'FORESEE' && '戦闘開始時に「未来予知」5を得る。攻撃を受ける際に「未来予知」があるなら自動で回避タイピングが発生し、成功すれば完全回避！'}
+                      {player.passive === 'DUEL' && '回避成功ターン終了時に[集中]+5、次ターンクリ倍率2倍。防御ターン被ダメージ時、自身に[脱力]2を付与。'}
+                      {player.passive === 'KILLER' && '強攻撃選択時に必ず後攻（敵の攻撃後）になるが、そのターンに自身が受けたダメージの1.5倍を強攻撃威力に加算！'}
+                    </div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -981,6 +1402,18 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
             </div>
 
             <div className="mt-2.5 flex items-center gap-2 text-xs">
+              {enemy.debuffs?.weakened && enemy.debuffs.weakened > 0 && (
+                <span className="relative group cursor-help px-2 py-0.5 bg-yellow-950/60 text-yellow-300 border border-yellow-800/50 rounded font-semibold flex items-center gap-1 animate-pulse">
+                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-400" />
+                  <span>[脱力] {enemy.debuffs.weakened}</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-yellow-400 mb-0.5">[脱力] デバフ</div>
+                    <div className="leading-snug">与えるダメージが30%減少します。ターン終了時に数値が1減少します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
+                </span>
+              )}
               <span className="relative group cursor-help px-2 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded font-semibold">
                 攻撃威力: {enemy.baseAtk}
                 {/* ツールチップ */}
@@ -998,6 +1431,30 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
                     <div className="font-bold text-blue-400 mb-0.5">敵 [集中] バフ</div>
                     <div className="leading-snug">敵の1スタックにつき10%の確率（現在 {enemy.buffs.concentration * 10}%）で与ダメージが1.5倍になります。発動するとスタック数が半減します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
+                </span>
+              )}
+              {enemy.type === 'ROBOT' && enemy.ironShell > 0 && (
+                <span className="relative group cursor-help px-2 py-0.5 bg-slate-800 text-slate-100 border border-slate-600 rounded font-semibold flex items-center gap-1">
+                  <Shield className="w-3.5 h-3.5 text-slate-400" />
+                  <span>鋼鉄外殻: {enemy.ironShell}</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-slate-100 mb-0.5">鋼鉄外殻</div>
+                    <div className="leading-snug">受ける最終ダメージを {enemy.ironShell * 10}% 軽減します。被ダメージ時に1減少し、HP50%未満になると消滅します。</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
+                  </div>
+                </span>
+              )}
+              {enemy.type === 'ROBOT' && enemy.hp < (enemy.maxHp * 0.5) && (
+                <span className="relative group cursor-help px-2 py-0.5 bg-amber-950/60 text-amber-300 border border-amber-800/50 rounded font-semibold flex items-center gap-1 animate-pulse">
+                  <Flame className="w-3.5 h-3.5 text-amber-400" />
+                  <span>必ず先制</span>
+                  {/* ツールチップ */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-950/95 border border-slate-700 text-[10px] text-slate-300 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none normal-case font-normal leading-normal">
+                    <div className="font-bold text-amber-400 mb-0.5">必ず先制攻撃</div>
+                    <div className="leading-snug">毎ターン、プレイヤーのアクション選択より先に、強力な攻撃を仕掛けてきます。</div>
                     <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-950" />
                   </div>
                 </span>
@@ -1020,6 +1477,9 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
             {/* 制限時間タイマー */}
             {phase === 'TYPING_ACTION' && (
               <div className="flex items-center gap-3 bg-slate-950/60 px-3.5 py-2 rounded-xl border border-red-900/30">
+                {isTimeExceeded && (
+                  <span className="text-xs font-bold text-amber-500 animate-pulse font-sans">時間超過（威力半減）</span>
+                )}
                 <span className="text-xl md:text-2xl font-mono text-red-500 font-black tracking-wider drop-shadow-[0_0_6px_rgba(239,68,68,0.3)]">{timeLeft.toFixed(1)}s</span>
                 <div className="w-32 bg-slate-950 rounded-full h-3 border border-slate-800 overflow-hidden">
                   <motion.div
@@ -1193,6 +1653,10 @@ export default function BattleScreen({ floor, player, setPlayer, onWin, onLose }
                 <div className="text-orange-400 font-bold underline mb-0.5">[猛毒] (デバフ)</div>
                 <p className="text-[10px] text-slate-500 leading-snug">ターン終了時に最大体力の8%のダメージ。この戦闘が終了するまで持続。</p>
               </div>
+              <div className="col-span-2 lg:col-span-1">
+                <div className="text-slate-400 font-bold underline mb-0.5">[鋼鉄外殻] (敵バフ)</div>
+                <p className="text-[10px] text-slate-500 leading-snug">ロボット兵士専用。1スタックにつき被ダメージを10%軽減。被ダメージ時に1減少し、HP50%未満になると消滅する。</p>
+              </div>
             </div>
           )}
         </div>
@@ -1216,6 +1680,8 @@ function SkullIcon({ type }: { type: EnemyType }) {
       return <span className="text-xl">🕷️</span>;
     case 'SHADOW':
       return <span className="text-xl">👤</span>;
+    case 'ROBOT':
+      return <span className="text-xl">🤖</span>;
     default:
       return <span className="text-xl">👾</span>;
   }

@@ -50,7 +50,7 @@ export default function App() {
   };
 
   // 報酬の選択＆適用
-  const handleSelectReward = (rewardIndex: number) => {
+  const handleSelectReward = (rewardIndex: number, passive?: 'FORESEE' | 'DUEL' | 'KILLER') => {
     setPlayer(prev => {
       // 撃破後の体力100%回復 (全回復)
       const newHp = prev.maxHp;
@@ -59,6 +59,7 @@ export default function App() {
       let atkLimitReductionLevel = prev.atkLimitReductionLevel;
       let allLimitIncreaseLevel = prev.allLimitIncreaseLevel;
       let concentrationGenLevel = prev.concentrationGenLevel;
+      let nextPassive = prev.passive;
 
       if (rewardIndex === 0) {
         // 基本攻撃威力+3、攻撃コマンドのタイピング制限時間-10%
@@ -70,6 +71,9 @@ export default function App() {
       } else if (rewardIndex === 2) {
         // 毎ターン開始時に[集中]1を得る。複数回取得で得る数値を+1
         concentrationGenLevel += 1;
+      } else if (rewardIndex === 3 && passive) {
+        // パッシブ能力の習得（既存のパッシブは上書き）
+        nextPassive = passive;
       }
 
       return {
@@ -79,6 +83,7 @@ export default function App() {
         atkLimitReductionLevel,
         allLimitIncreaseLevel,
         concentrationGenLevel,
+        passive: nextPassive,
       };
     });
 

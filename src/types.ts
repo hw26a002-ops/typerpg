@@ -15,9 +15,10 @@ export interface PlayerStatus {
   atkLimitReductionLevel: number; // 攻撃制限時間-10% の取得回数
   allLimitIncreaseLevel: number;  // 全制限時間5%増加 の取得回数
   concentrationGenLevel: number;  // 毎ターン[集中]+1 の取得回数
+  passive?: 'FORESEE' | 'DUEL' | 'KILLER';
 }
 
-export type EnemyType = 'GOBLIN' | 'SKELETON' | 'GOLEM' | 'SPIDER' | 'SHADOW';
+export type EnemyType = 'GOBLIN' | 'SKELETON' | 'GOLEM' | 'SPIDER' | 'SHADOW' | 'ROBOT';
 
 export interface EnemyStatus {
   type: EnemyType;
@@ -28,6 +29,10 @@ export interface EnemyStatus {
   buffs: {
     concentration: number;
   };
+  debuffs?: {
+    weakened: number;
+  };
+  ironShell: number; // 鋼鉄外殻の層数
   // 敵のパッシブスキル説明など
   passiveName: string;
   passiveDesc: string;

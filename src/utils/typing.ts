@@ -222,3 +222,37 @@ export function getNextValidKeys(hiragana: string, input: string): string[] {
   }
   return validKeys;
 }
+
+// プレイヤーが入力したローマ字 input に対応する、入力済みのひらがな文字数を精度高く算出する
+export function getCompletedHiraganaLength(hiragana: string, input: string): number {
+  if (!input) return 0;
+  
+  let maxI = 0; // 完全に一致したひらがなの文字数
+  let matchedJ = 0; // その時のローマ字のインデックス
+  
+  // ひらがなのプレフィックス i と、入力ローマ字のプレフィックス j のすべての組み合わせをチェック
+  for (let i = 1; i <= hiragana.length; i++) {
+    const part = hiragana.substring(0, i);
+    for (let j = 1; j <= input.length; j++) {
+      const subInput = input.substring(0, j);
+      if (isCompleteMatch(part, subInput)) {
+        if (i > maxI) {
+          maxI = i;
+          matchedJ = j;
+        }
+      }
+    }
+  }
+  
+  // 余った入力があるかチェック（現在入力中の文字があるか）
+  if (matchedJ < input.length) {
+    const remainingInput = input.substring(matchedJ);
+    const nextChar = hiragana.substring(maxI, maxI + 1);
+    if (nextChar && isValidPrefix(nextChar, remainingInput)) {
+      return maxI + 0.5; // 入力途中の文字は 0.5 文字分としてカウント
+    }
+  }
+  
+  return maxI;
+}
+
